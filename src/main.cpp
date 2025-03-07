@@ -5,6 +5,7 @@
 
 // drivers
 #include "DebounceIn.h"
+#include <cstdio>
 
 bool do_execute_main_task = false; // this variable will be toggled via the user button (blue button) and
                                    // decides whether to execute the main task or not
@@ -21,6 +22,9 @@ int main()
 {
     // attach button fall function address to user button object
     user_button.fall(&toggle_do_execute_main_fcn);
+
+    float ir_distance_mV = 0.0f;
+    AnalogIn ir_analog_in(PC_2);
 
     // while loop gets executed every main_task_period_ms milliseconds, this is a
     // simple approach to repeatedly execute main
@@ -48,6 +52,10 @@ int main()
 
             // visual feedback that the main task is executed, setting this once would actually be enough
             led1 = 1;
+
+            ir_distance_mV = ir_analog_in.read() * 3.3f * 1000;
+            printf("IR distance mV: %f\n", ir_distance_mV);
+
         } else {
             // the following code block gets executed only once
             if (do_reset_all_once) {
@@ -55,6 +63,7 @@ int main()
 
                 // reset variables and objects
                 led1 = 0;
+                ir_distance_mV = 0.0f;
             }
         }
 
