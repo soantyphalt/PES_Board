@@ -44,14 +44,27 @@ int main()
     const float servo_D0_ang_min = 0.02f;
     const float servo_D0_ang_max = 0.105f;
     servo_D0.calibratePulseMinMax(servo_D0_ang_min, servo_D0_ang_max);
-    servo_D0.setMaxAcceleration(0.3f);
+    // servo_D0.setMaxAcceleration(0.3f);
 
     DigitalIn mechanical_button(PC_5);
     mechanical_button.mode(PullUp);
 
+    UltrasonicSensor us_sensor(PB_D3);
+    float us_distance_cm = 0.0f;
+    float us_distance_min = 6.0f;
+    float us_distance_max = 40.0f;
+
     float servo_input = 0.0f;
     int servo_counter = 0;
     const int loops_per_seconds = static_cast<int>(ceilf(1.0f / (0.001f * static_cast<float>(main_task_period_ms))));
+
+    // set up states for state machine
+    enum RobotState {
+        INITIAL,
+        EXECUTION,
+        SLEEP,
+        EMERGENCY
+    } robot_state = RobotState::INITIAL;
 
     // start timer
     main_task_timer.start();
@@ -60,28 +73,55 @@ int main()
     while (true) {
         main_task_timer.reset();
 
-        // printf("Pulse width: %f \n", servo_input);
-        printf("Mech Button: %i\n", mechanical_button.read());
-
         if (do_execute_main_task) {
 
             // visual feedback that the main task is executed, setting this once would actually be enough
             led1 = 1;
 
-            // enable the servos
-            if (!servo_D0.isEnabled()) {
-                servo_D0.enable();
+            const float us_distance_cm_candidate = us_sensor.read();
+            if (us_distance_cm_candidate >= 0.0f) {
+                us_distance_cm = us_distance_cm_candidate;
             }
 
-            servo_D0.setPulseWidth(servo_input);
+            // state machine
+            switch (robot_state) {
+                case RobotState::INITIAL: {
+                    printf("INITIAL\n");
+                    if (!servo_D0.isEnabled()) servo_D0.enable();
 
-            if ((servo_input < 1.0f) && (servo_counter % loops_per_seconds == 0) && (servo_counter != 0)) {
-                servo_input += 0.05f;
-                // servo_input += 0.05f;
+                    robot_state = RobotState::EXECUTION;
+                    break;
+                }
+                case RobotState::EXECUTION: {
+                    printf("EXECUTION\n");
+
+                    servo_input = (us_distance_cm - us_distance_min) / (us_distance_max - us_distance_min);
+                    servo_D0.setPulseWidth(servo_input);
+
+                    if ((us_distance_cm < us_distance_min) || (us_distance_cm > us_distance_max)) robot_state = RobotState::SLEEP;
+
+                    if (mechanical_button.read()) robot_state = RobotState::EMERGENCY;
+
+                    break;
+                }
+                case RobotState::SLEEP: {
+                    printf("SLEEP\n");
+
+                    if ((us_distance_cm >= us_distance_min) && (us_distance_cm <= us_distance_max)) robot_state = RobotState::EXECUTION;
+                    if (mechanical_button.read()) robot_state = RobotState::EMERGENCY;
+
+                    break;
+                }
+                case RobotState::EMERGENCY: {
+                    printf("EMERGENCY\n");
+
+                    toggle_do_execute_main_fcn();
+
+                    break;
+                }
+                default:
+                    break; // do nothing
             }
-            // printf("Servo Counter: %i\n", servo_counter);
-            servo_counter ++;
-
 
         } else {
             // the following code block gets executed only once
@@ -92,9 +132,12 @@ int main()
                 led1 = 0;
 
                 servo_D0.disable();
-                servo_input = 0.0f;
+                us_distance_cm = 0.0f;
+                robot_state = RobotState::INITIAL;
             }
         }
+
+        printf("Distance: %.2f cm\n", us_distance_cm);
 
         // toggling the user led
         user_led = !user_led;
